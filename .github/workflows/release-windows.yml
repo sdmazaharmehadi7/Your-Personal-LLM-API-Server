@@ -1,0 +1,104 @@
+name: Build & Release Windows Desktop
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows x64 Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          flutter-version: '3.47.7'
+          cache: true
+
+      - name: Enable Windows Desktop Support
+        run: flutter config --enable-windows-desktop
+
+      - name: Verify Environment
+        run: flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Run Static Analysis
+        run: flutter analyze
+
+      - name: Run Automated Test Suite
+        run: flutter test
+
+      - name: Build Windows Desktop Release
+        run: flutter build windows --release
+
+      - name: Verify Build Artifacts
+        shell: pwsh
+        run: |
+          $buildDir = "build/windows/x64/runner/Release"
+          if (-not (Test-Path "$buildDir/sovereign_ai.exe")) {
+            Write-Error "Windows executable sovereign_ai.exe not found in $buildDir"
+            exit 1
+          }
+          Write-Host "Windows release successfully built in $buildDir"
+          Get-ChildItem -Path $buildDir
+
+      - name: Create Release Package
+        shell: pwsh
+        run: |
+          $releaseDir = "build/windows/x64/runner/Release"
+          $packageDir = "dist/SovereignAI-1.0.0-windows-x64"
+          New-Item -ItemType Directory -Force -Path $packageDir
+          Copy-Item -Path "$releaseDir/*" -Destination $packageDir -Recurse
+
+          # Add installation and offline operation README
+          $readmeLines = @(
+            "Sovereign AI for Windows (x64)",
+            "Version: 1.0.0",
+            "==============================",
+            "",
+            "SYSTEM REQUIREMENTS:",
+            "- Windows 10 (version 1809 or higher) or Windows 11 (64-bit)",
+            "- 4GB RAM minimum (8GB+ recommended for 1B-3B models)",
+            "- AVX2-capable x86_64 CPU",
+            "",
+            "HOW TO RUN:",
+            "1. Extract all files to a folder of your choice (e.g. C:\Apps\SovereignAI).",
+            "2. Double-click sovereign_ai.exe to launch.",
+            "3. Open the Model Manager tab to download or import your local GGUF models.",
+            "4. For Neural RAG, download the 23MB all-MiniLM-L6-v2 model directly inside the app.",
+            "",
+            "100% PRIVATE & OFFLINE:",
+            "No data, documents, questions, or embeddings are ever sent to any cloud server."
+          )
+          $readmeLines | Set-Content -Path "$packageDir/README.txt"
+
+          # Compress into distribution zip
+          Compress-Archive -Path "$packageDir/*" -DestinationPath "SovereignAI-1.0.0-windows-x64.zip" -Force
+
+          # Generate SHA-256 Checksum
+          $hash = (Get-FileHash -Path "SovereignAI-1.0.0-windows-x64.zip" -Algorithm SHA256).Hash
+          Set-Content -Path "SovereignAI-1.0.0-windows-x64.zip.sha256" -Value "$hash  SovereignAI-1.0.0-windows-x64.zip"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SovereignAI-Windows-x64
+          path: |
+            SovereignAI-1.0.0-windows-x64.zip
+            SovereignAI-1.0.0-windows-x64.zip.sha256
+          retention-days: 30
