@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
 
 class AppColorSchemes {
-  // ChatGPT / Claude inspired sleek charcoal dark theme
+  // Sleek Obsidian / True OLED Jet Black dark theme
   static const ColorScheme darkColorScheme = ColorScheme(
     brightness: Brightness.dark,
-    primary: Color(0xFF10A37A), // Restrained emerald / OpenAI green
-    onPrimary: Color(0xFFFFFFFF),
-    primaryContainer: Color(0xFF1E2E28),
+    primary: Color(0xFF10B981), // Restrained emerald / active green
+    onPrimary: Color(0xFF000000),
+    primaryContainer: Color(0xFF14241C),
     onPrimaryContainer: Color(0xFFA7F3D0),
     secondary: Color(0xFFA1A1AA), // Zinc 400
-    onSecondary: Color(0xFF18181B),
-    secondaryContainer: Color(0xFF27272A),
+    onSecondary: Color(0xFF09090B),
+    secondaryContainer: Color(0xFF1C1C22),
     onSecondaryContainer: Color(0xFFE4E4E7),
     tertiary: Color(0xFF34D399),
     onTertiary: Color(0xFF064E3B),
@@ -18,17 +18,17 @@ class AppColorSchemes {
     onTertiaryContainer: Color(0xFFA7F3D0),
     error: Color(0xFFEF4444),
     onError: Color(0xFFFFFFFF),
-    errorContainer: Color(0xFF451A1A),
+    errorContainer: Color(0xFF3B1515),
     onErrorContainer: Color(0xFFFCA5A5),
-    surface: Color(0xFF18181B), // Zinc 900
+    surface: Color(0xFF09090B), // True jet black
     onSurface: Color(0xFFF4F4F5), // Zinc 100
-    surfaceContainerLowest: Color(0xFF09090B), // Zinc 950
-    surfaceContainerLow: Color(0xFF121214),
-    surfaceContainer: Color(0xFF202024), // Neutral dark card
-    surfaceContainerHigh: Color(0xFF27272A), // Zinc 800
-    surfaceContainerHighest: Color(0xFF323238),
+    surfaceContainerLowest: Color(0xFF000000), // Pure OLED black
+    surfaceContainerLow: Color(0xFF0D0D10),
+    surfaceContainer: Color(0xFF131317), // Sleek obsidian card
+    surfaceContainerHigh: Color(0xFF1A1A20), // Subtle elevated card
+    surfaceContainerHighest: Color(0xFF24242C),
     outline: Color(0xFF71717A), // Zinc 500
-    outlineVariant: Color(0xFF2E2E33), // Subtle 1px borders
+    outlineVariant: Color(0xFF222226), // Subtle 1px crisp borders
   );
 
   // Clean, high-contrast, distraction-free light theme

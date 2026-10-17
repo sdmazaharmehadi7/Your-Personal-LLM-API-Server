@@ -255,8 +255,8 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
     VoidCallback? onTest,
     String? disabledTooltip,
   }) {
-    final cardBgColor = const Color(0xFF181C26);
-    final cardBorderColor = const Color(0xFF262B38);
+    final cardBgColor = const Color(0xFF0F0F12);
+    final cardBorderColor = const Color(0xFF242428);
 
     return Container(
       decoration: BoxDecoration(
@@ -304,7 +304,7 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
                     ),
                   ),
                 ),
-                // Test button (purple/indigo matching Screenshot 2)
+                // Test button (sleek monochrome matching black theme)
                 Tooltip(
                   message:
                       disabledTooltip ??
@@ -312,8 +312,8 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
                   child: FilledButton(
                     onPressed: onTest,
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF6366F1),
-                      foregroundColor: Colors.white,
+                      backgroundColor: Colors.white,
+                      foregroundColor: Colors.black,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 20,
                         vertical: 10,
@@ -329,13 +329,13 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
                             height: 16,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: Colors.white,
+                              color: Colors.black,
                             ),
                           )
                         : const Text(
                             'Test',
                             style: TextStyle(
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                               fontSize: 13,
                             ),
                           ),
@@ -344,7 +344,7 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
               ],
             ),
           ),
-          const Divider(height: 1, thickness: 1, color: Color(0xFF262B38)),
+          const Divider(height: 1, thickness: 1, color: Color(0xFF242428)),
           // Description
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -358,12 +358,12 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
           ),
           // Test Results Section (if executed)
           if (isLoading || statusCode != null || errorMessage != null) ...[
-            const Divider(height: 1, thickness: 1, color: Color(0xFF262B38)),
+            const Divider(height: 1, thickness: 1, color: Color(0xFF242428)),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(14),
               decoration: const BoxDecoration(
-                color: Color(0xFF12151D),
+                color: Color(0xFF060608),
                 borderRadius: BorderRadius.vertical(
                   bottom: Radius.circular(11),
                 ),
@@ -554,9 +554,9 @@ class _SampleEndpointsScreenState extends State<SampleEndpointsScreen> {
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: const Color(0xFF0F1218),
+                color: const Color(0xFF060608),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
+                border: Border.all(color: const Color(0xFF242428)),
               ),
               child: SelectableText(
                 'curl $activeBaseUrl/chat/completions \\\n'

@@ -15,6 +15,7 @@ class ApiServerCard extends StatefulWidget {
 class _ApiServerCardState extends State<ApiServerCard> {
   late TextEditingController _portController;
   String? _portError;
+  bool _isUpdatingExternal = false;
 
   @override
   void initState() {
@@ -85,9 +86,9 @@ class _ApiServerCardState extends State<ApiServerCard> {
                   ? 'http://${apiServer.lanIp}:${apiServer.configuredPort}/v1'
                   : 'http://<device-ip>:${apiServer.configuredPort}/v1');
 
-        const cardBgColor = Color(0xFF181C26);
-        const cardBorderColor = Color(0xFF262B38);
-        const primaryPurple = Color(0xFF818CF8);
+        const cardBgColor = Color(0xFF0F0F12);
+        const cardBorderColor = Color(0xFF242428);
+        const emeraldAccent = Color(0xFF10B981);
         const amberAccent = Color(0xFFF59E0B);
 
         return Container(
@@ -103,17 +104,18 @@ class _ApiServerCardState extends State<ApiServerCard> {
               // Row 1: Local API Server Switch (Diamond Icon, Title, Subtitle, Switch)
               Row(
                 children: [
-                  // Purple/Lavender Diamond Icon
+                  // Sleek Obsidian Container with Chrome Icon
                   Container(
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      color: primaryPurple.withValues(alpha: 0.15),
+                      color: const Color(0xFF18181E),
                       borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFF2E2E36)),
                     ),
                     child: const Icon(
-                      Icons.auto_awesome_mosaic_outlined,
-                      color: primaryPurple,
+                      Icons.dns_rounded,
+                      color: Colors.white,
                       size: 20,
                     ),
                   ),
@@ -144,11 +146,11 @@ class _ApiServerCardState extends State<ApiServerCard> {
                       ],
                     ),
                   ),
-                  // Purple Toggle Switch
+                  // Emerald Online Toggle Switch
                   Switch(
                     value: isServerRunning,
                     activeThumbColor: Colors.white,
-                    activeTrackColor: primaryPurple,
+                    activeTrackColor: emeraldAccent,
                     inactiveThumbColor: Colors.grey.shade400,
                     inactiveTrackColor: Colors.grey.shade800,
                     onChanged: isServerTransitioning
@@ -204,20 +206,27 @@ class _ApiServerCardState extends State<ApiServerCard> {
                     activeTrackColor: amberAccent,
                     inactiveThumbColor: Colors.grey.shade400,
                     inactiveTrackColor: Colors.grey.shade800,
-                    onChanged: isServerTransitioning
+                    onChanged: (isServerTransitioning || _isUpdatingExternal)
                         ? null
                         : (val) async {
-                            final success = await apiServer
-                                .setAllowExternalConnections(val);
-                            if (!success &&
-                                context.mounted &&
-                                apiServer.errorMessage != null) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(apiServer.errorMessage!),
-                                  backgroundColor: theme.colorScheme.error,
-                                ),
-                              );
+                            setState(() => _isUpdatingExternal = true);
+                            try {
+                              final success = await apiServer
+                                  .setAllowExternalConnections(val);
+                              if (!success &&
+                                  context.mounted &&
+                                  apiServer.errorMessage != null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(apiServer.errorMessage!),
+                                    backgroundColor: theme.colorScheme.error,
+                                  ),
+                                );
+                              }
+                            } finally {
+                              if (mounted) {
+                                setState(() => _isUpdatingExternal = false);
+                              }
                             }
                           },
                   ),
@@ -257,7 +266,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                   Switch(
                     value: apiServer.allowKeylessLocalhost,
                     activeThumbColor: Colors.white,
-                    activeTrackColor: primaryPurple,
+                    activeTrackColor: emeraldAccent,
                     inactiveThumbColor: Colors.grey.shade400,
                     inactiveTrackColor: Colors.grey.shade800,
                     onChanged: (val) {
@@ -277,12 +286,12 @@ class _ApiServerCardState extends State<ApiServerCard> {
                 decoration: BoxDecoration(
                   color: apiServer.allowExternalConnections
                       ? const Color(0xFF23190B)
-                      : const Color(0xFF1B1E28),
+                      : const Color(0xFF141418),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
                     color: apiServer.allowExternalConnections
                         ? const Color(0xFF6B4310)
-                        : const Color(0xFF2E3547),
+                        : const Color(0xFF242428),
                     width: 1.2,
                   ),
                 ),
@@ -294,7 +303,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                           : Icons.security_outlined,
                       color: apiServer.allowExternalConnections
                           ? const Color(0xFFFBBF24)
-                          : const Color(0xFF818CF8),
+                          : Colors.white70,
                       size: 20,
                     ),
                     const SizedBox(width: 10),
@@ -425,7 +434,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                     vertical: 12,
                   ),
                   filled: true,
-                  fillColor: const Color(0xFF12151D),
+                  fillColor: const Color(0xFF141418),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(color: cardBorderColor),
@@ -437,7 +446,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),
                     borderSide: const BorderSide(
-                      color: primaryPurple,
+                      color: Colors.white70,
                       width: 1.5,
                     ),
                   ),
@@ -470,8 +479,8 @@ class _ApiServerCardState extends State<ApiServerCard> {
                     );
                   },
                   icon: const Icon(
-                    Icons.auto_awesome_mosaic_outlined,
-                    color: primaryPurple,
+                    Icons.terminal_rounded,
+                    color: Colors.white,
                     size: 18,
                   ),
                   label: const Text(
@@ -483,7 +492,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                     ),
                   ),
                   style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFF12151D),
+                    backgroundColor: const Color(0xFF141418),
                     side: const BorderSide(color: cardBorderColor, width: 1.2),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -498,7 +507,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF12151D),
+                  color: const Color(0xFF141418),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: cardBorderColor),
                 ),
@@ -509,7 +518,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                       children: [
                         const Icon(
                           Icons.cloud_outlined,
-                          color: primaryPurple,
+                          color: Colors.white70,
                           size: 20,
                         ),
                         const SizedBox(width: 10),
@@ -543,7 +552,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
                         Switch(
                           value: isTunnelConnected,
                           activeThumbColor: Colors.white,
-                          activeTrackColor: primaryPurple,
+                          activeTrackColor: emeraldAccent,
                           inactiveThumbColor: Colors.grey.shade400,
                           inactiveTrackColor: Colors.grey.shade800,
                           onChanged: (!isServerRunning || isTunnelTransitioning)
@@ -650,7 +659,7 @@ class _ApiServerCardState extends State<ApiServerCard> {
       builder: (ctx) => AlertDialog(
         title: const Row(
           children: [
-            Icon(Icons.terminal, color: Color(0xFF818CF8), size: 22),
+            Icon(Icons.terminal, color: Colors.white, size: 22),
             SizedBox(width: 10),
             Text('Cloudflare Tunnel Required'),
           ],
@@ -672,9 +681,9 @@ class _ApiServerCardState extends State<ApiServerCard> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF12151D),
+                color: const Color(0xFF0F0F12),
                 borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: const Color(0xFF262B38)),
+                border: Border.all(color: const Color(0xFF242428)),
               ),
               child: const SelectableText(
                 'brew install cloudflared',

@@ -163,24 +163,121 @@ class LocalApiServer extends ChangeNotifier {
     return _lanIp;
   }
 
+  Future<bool>? _activeRebindFuture;
+
   /// Toggles whether external devices on the LAN can connect.
   ///
-  /// If the server is currently running, stops and restarts with the new binding.
+  /// If the server is currently running, smoothly rebinds to the new interface
+  /// without dropping out of the running state.
   Future<bool> setAllowExternalConnections(bool allow) async {
     if (_allowExternalConnections == allow) return true;
     _allowExternalConnections = allow;
 
     if (isRunning) {
       final currentPort = _activePort ?? _configuredPort;
-      await stop();
-      final success = await start(port: currentPort);
-      return success;
+      return await _rebind(currentPort);
     } else {
       if (allow) {
         await resolveLanIp();
       }
       if (!_isDisposed) notifyListeners();
       return true;
+    }
+  }
+
+  /// Smoothly rebinds the running HTTP server to the current [bindAddress]
+  /// without flipping [isRunning] to false or tearing down server state.
+  Future<bool> _rebind(int targetPort) async {
+    while (_activeRebindFuture != null) {
+      try {
+        await _activeRebindFuture;
+      } catch (_) {}
+    }
+
+    final completer = Completer<bool>();
+    _activeRebindFuture = completer.future;
+
+    try {
+      if (_allowExternalConnections) {
+        await resolveLanIp();
+      }
+
+      final addressToBind = bindAddress;
+      final oldServer = _server;
+
+      // Unassign server reference so oldServer's onDone does not trigger stop status
+      _server = null;
+      if (oldServer != null) {
+        await oldServer.close(force: true);
+      }
+
+      HttpServer? newServer;
+      Object? lastError;
+
+      // Retry loop to handle brief OS socket release latency on Darwin/macOS
+      for (var attempt = 0; attempt < 6; attempt++) {
+        try {
+          newServer = await HttpServer.bind(
+            addressToBind,
+            targetPort,
+            shared: true,
+          );
+          break;
+        } catch (e) {
+          lastError = e;
+          await Future.delayed(const Duration(milliseconds: 60));
+        }
+      }
+
+      if (newServer == null) {
+        final boundName = _allowExternalConnections ? '0.0.0.0' : '127.0.0.1';
+        _errorMessage =
+            'Failed to rebind to $boundName:$targetPort. $lastError';
+        _setStatus(ApiServerStatus.error);
+        _server = null;
+        _activePort = null;
+        completer.complete(false);
+        return false;
+      }
+
+      _server = newServer;
+      _activePort = newServer.port;
+      _configuredPort = newServer.port;
+      _errorMessage = null;
+
+      newServer.listen(
+        _handleRequest,
+        onError: (Object error) {
+          if (!_isDisposed &&
+              _server == newServer &&
+              _status == ApiServerStatus.running) {
+            _errorMessage = 'HTTP server error: $error';
+            _setStatus(ApiServerStatus.error);
+          }
+        },
+        onDone: () {
+          if (!_isDisposed &&
+              _server == newServer &&
+              _status == ApiServerStatus.running) {
+            _setStatus(ApiServerStatus.stopped);
+          }
+        },
+        cancelOnError: false,
+      );
+
+      // Keep status as running and notify listeners so baseUrl and badges update cleanly
+      _setStatus(ApiServerStatus.running);
+      completer.complete(true);
+      return true;
+    } catch (e) {
+      _errorMessage = 'Rebind failed: $e';
+      _setStatus(ApiServerStatus.error);
+      completer.complete(false);
+      return false;
+    } finally {
+      if (_activeRebindFuture == completer.future) {
+        _activeRebindFuture = null;
+      }
     }
   }
 
@@ -220,7 +317,7 @@ class LocalApiServer extends ChangeNotifier {
       final server = await HttpServer.bind(
         addressToBind,
         targetPort,
-        shared: false,
+        shared: true,
       );
 
       _server = server;
@@ -231,13 +328,17 @@ class LocalApiServer extends ChangeNotifier {
       server.listen(
         _handleRequest,
         onError: (Object error) {
-          if (!_isDisposed && _status == ApiServerStatus.running) {
+          if (!_isDisposed &&
+              _server == server &&
+              _status == ApiServerStatus.running) {
             _errorMessage = 'HTTP server error: $error';
             _setStatus(ApiServerStatus.error);
           }
         },
         onDone: () {
-          if (!_isDisposed && _status == ApiServerStatus.running) {
+          if (!_isDisposed &&
+              _server == server &&
+              _status == ApiServerStatus.running) {
             _setStatus(ApiServerStatus.stopped);
           }
         },
@@ -276,8 +377,9 @@ class LocalApiServer extends ChangeNotifier {
 
     try {
       if (_server != null) {
-        await _server!.close(force: true);
+        final serverToClose = _server!;
         _server = null;
+        await serverToClose.close(force: true);
       }
       _activePort = null;
       _setStatus(ApiServerStatus.stopped);

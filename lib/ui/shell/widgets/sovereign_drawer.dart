@@ -208,7 +208,7 @@ class _SovereignDrawerState extends State<SovereignDrawer> {
                   ),
                   onPressed: () {
                     chatState.createNewChat();
-                    widget.onSelectDestination(0);
+                    widget.onSelectDestination(1);
                     Navigator.of(context).pop();
                   },
                 ),
@@ -287,7 +287,7 @@ class _SovereignDrawerState extends State<SovereignDrawer> {
                         final session = sessions[index];
                         final isActive =
                             session.id == chatState.activeSessionId &&
-                            widget.selectedIndex == 0;
+                            widget.selectedIndex == 1;
 
                         return Container(
                           margin: const EdgeInsets.symmetric(vertical: 2),
@@ -295,7 +295,7 @@ class _SovereignDrawerState extends State<SovereignDrawer> {
                             borderRadius: BorderRadius.circular(8),
                             onTap: () {
                               chatState.selectSession(session.id);
-                              widget.onSelectDestination(0);
+                              widget.onSelectDestination(1);
                               Navigator.of(context).pop();
                             },
                             child: Container(
@@ -415,27 +415,39 @@ class _SovereignDrawerState extends State<SovereignDrawer> {
                 children: [
                   _buildDrawerNavItem(
                     context,
+                    icon: Icons.home_outlined,
+                    label: 'Home',
+                    index: 0,
+                  ),
+                  _buildDrawerNavItem(
+                    context,
+                    icon: Icons.chat_bubble_outline,
+                    label: 'Chat',
+                    index: 1,
+                  ),
+                  _buildDrawerNavItem(
+                    context,
                     icon: Icons.dns_outlined,
                     label: 'Model Manager',
-                    index: 1,
+                    index: 2,
                   ),
                   _buildDrawerNavItem(
                     context,
                     icon: Icons.history_rounded,
                     label: 'Chat History',
-                    index: 2,
+                    index: 3,
                   ),
                   _buildDrawerNavItem(
                     context,
                     icon: Icons.tune_rounded,
                     label: 'Settings',
-                    index: 3,
+                    index: 4,
                   ),
                   _buildDrawerNavItem(
                     context,
                     icon: Icons.info_outline_rounded,
                     label: 'About',
-                    index: 4,
+                    index: 5,
                   ),
                   Container(
                     margin: const EdgeInsets.symmetric(vertical: 1),

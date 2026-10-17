@@ -5,12 +5,15 @@ import '../../state/app_scope.dart';
 import '../about/about_screen.dart';
 import '../chat/chat_screen.dart';
 import '../history/chat_history_screen.dart';
+import '../landing/landing_screen.dart';
 import '../models/model_manager_screen.dart';
 import '../settings/settings_screen.dart';
 import 'widgets/sovereign_drawer.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  final int initialIndex;
+
+  const AppShell({super.key, this.initialIndex = 0});
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -18,7 +21,13 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-  int _selectedIndex = 0;
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
 
   void _onDestinationSelected(int index) {
     setState(() {
@@ -34,12 +43,18 @@ class _AppShellState extends State<AppShell> {
     final hasModelLoaded = modelState.hasLoadedModel;
 
     final screens = [
+      LandingScreen(
+        onNavigateToChat: () => _onDestinationSelected(1),
+        onNavigateToModels: () => _onDestinationSelected(2),
+        onNavigateToSettings: () => _onDestinationSelected(4),
+        onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
+      ),
       ChatScreen(
-        onOpenModelManager: () => _onDestinationSelected(1),
+        onOpenModelManager: () => _onDestinationSelected(2),
         onOpenDrawer: () => _scaffoldKey.currentState?.openDrawer(),
       ),
       const ModelManagerScreen(),
-      ChatHistoryScreen(onNavigateToChat: () => _onDestinationSelected(0)),
+      ChatHistoryScreen(onNavigateToChat: () => _onDestinationSelected(1)),
       const SettingsScreen(),
       const AboutScreen(),
     ];
@@ -114,6 +129,11 @@ class _AppShellState extends State<AppShell> {
               ),
               destinations: const [
                 NavigationRailDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home_rounded),
+                  label: Text('Home'),
+                ),
+                NavigationRailDestination(
                   icon: Icon(Icons.chat_bubble_outline),
                   selectedIcon: Icon(Icons.chat_bubble),
                   label: Text('Chat'),
@@ -161,6 +181,11 @@ class _AppShellState extends State<AppShell> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: _onDestinationSelected,
         destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home_rounded),
+            label: 'Home',
+          ),
           NavigationDestination(
             icon: Icon(Icons.chat_bubble_outline),
             selectedIcon: Icon(Icons.chat_bubble),
