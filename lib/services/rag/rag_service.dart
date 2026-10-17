@@ -281,9 +281,7 @@ class RagService implements IRagService {
       final sectionInfo = chunk.sectionTitle != null
           ? ', Section: "${chunk.sectionTitle}"'
           : '';
-      buffer.writeln(
-        '[Source $index: ${chunk.fileName}$pageInfo$sectionInfo]',
-      );
+      buffer.writeln('[Source $index: ${chunk.fileName}$pageInfo$sectionInfo]');
       buffer.writeln(chunk.text.trim());
       buffer.writeln();
       index++;

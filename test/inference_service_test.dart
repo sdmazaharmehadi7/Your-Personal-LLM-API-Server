@@ -12,6 +12,7 @@ import 'package:sovereign_ai/state/model_state.dart';
 class FakeInferenceService implements IInferenceService {
   bool _isLoaded = false;
   bool _isGenerating = false;
+  ModelLoadStatus _status = ModelLoadStatus.unloaded;
   String? _modelPath;
   String? _modelName;
   StreamController<String>? _controller;
@@ -21,6 +22,9 @@ class FakeInferenceService implements IInferenceService {
 
   @override
   bool get isGenerating => _isGenerating;
+
+  @override
+  ModelLoadStatus get status => _status;
 
   @override
   String? get currentModelPath => _modelPath;
@@ -34,13 +38,19 @@ class FakeInferenceService implements IInferenceService {
     int contextWindow = 2048,
     bool useGpu = true,
   }) async {
+    if (_isGenerating) {
+      await stopGeneration();
+    }
     await unloadModel();
     if (!filePath.endsWith('.gguf')) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException(
         'Invalid file format: must end with .gguf',
       );
     }
+    _status = ModelLoadStatus.loading;
     _isLoaded = true;
+    _status = ModelLoadStatus.loaded;
     _modelPath = filePath;
     _modelName = 'TestModel';
   }
@@ -48,7 +58,9 @@ class FakeInferenceService implements IInferenceService {
   @override
   Future<void> unloadModel() async {
     await stopGeneration();
+    _status = ModelLoadStatus.unloading;
     _isLoaded = false;
+    _status = ModelLoadStatus.unloaded;
     _modelPath = null;
     _modelName = null;
   }
@@ -58,15 +70,20 @@ class FakeInferenceService implements IInferenceService {
     required List<ChatMessage> messages,
     required GenerationSettings settings,
   }) {
-    if (!_isLoaded) {
+    if (!_isLoaded || _status != ModelLoadStatus.loaded) {
       throw const InferenceException('No model loaded');
     }
-    if (_isGenerating) {
+    if (_isGenerating || _status == ModelLoadStatus.generating) {
       throw const InferenceException('Generation already in progress');
     }
 
     _isGenerating = true;
-    _controller = StreamController<String>();
+    _status = ModelLoadStatus.generating;
+    _controller = StreamController<String>(
+      onCancel: () async {
+        await stopGeneration();
+      },
+    );
 
     // Emit tokens asynchronously
     Future.microtask(() async {
@@ -78,6 +95,7 @@ class FakeInferenceService implements IInferenceService {
       }
       if (_controller != null && !_controller!.isClosed) {
         _isGenerating = false;
+        _status = _isLoaded ? ModelLoadStatus.loaded : ModelLoadStatus.unloaded;
         await _controller!.close();
       }
     });
@@ -91,6 +109,9 @@ class FakeInferenceService implements IInferenceService {
       await _controller!.close();
     }
     _isGenerating = false;
+    if (_status == ModelLoadStatus.generating) {
+      _status = _isLoaded ? ModelLoadStatus.loaded : ModelLoadStatus.unloaded;
+    }
   }
 
   @override
@@ -323,5 +344,147 @@ void main() {
         expect(userMessages.first.content, 'First prompt');
       },
     );
+
+    test(
+      'cancelling token stream triggers onCancel and resets generating state',
+      () async {
+        final fakeService = FakeInferenceService();
+        await fakeService.loadModel('/valid/test.gguf');
+
+        final stream = fakeService.generate(
+          messages: [
+            ChatMessage(
+              id: '1',
+              role: MessageRole.user,
+              content: 'test',
+              timestamp: DateTime.now(),
+            ),
+          ],
+          settings: const GenerationSettings(),
+        );
+
+        expect(fakeService.status, ModelLoadStatus.generating);
+        expect(fakeService.isGenerating, isTrue);
+
+        final sub = stream.listen((_) {});
+        // Cancel the stream subscription
+        await sub.cancel();
+
+        expect(fakeService.isGenerating, isFalse);
+        expect(fakeService.status, ModelLoadStatus.loaded);
+      },
+    );
+  });
+
+  group('Model lifecycle and state transition tests', () {
+    test('LocalInferenceService initial state is unloaded', () {
+      final service = LocalInferenceService();
+      expect(service.status, ModelLoadStatus.unloaded);
+      expect(service.isLoaded, isFalse);
+      expect(service.isGenerating, isFalse);
+    });
+
+    test(
+      'LocalInferenceService transitions to error on invalid model file',
+      () async {
+        final service = LocalInferenceService();
+        expect(
+          () => service.loadModel('/invalid/path.bin'),
+          throwsA(isA<InferenceException>()),
+        );
+        expect(service.status, ModelLoadStatus.error);
+        expect(service.isLoaded, isFalse);
+      },
+    );
+
+    test('LocalInferenceService rejects generation when not loaded', () {
+      final service = LocalInferenceService();
+      expect(
+        () => service.generate(
+          messages: [],
+          settings: const GenerationSettings(),
+        ),
+        throwsA(
+          predicate<InferenceException>(
+            (e) => e.message.contains('No model is currently loaded'),
+          ),
+        ),
+      );
+    });
+
+    test('ModelState deduplicates load requests for already loaded model', () async {
+      final fakeService = FakeInferenceService();
+      final modelState = ModelState(inferenceService: fakeService);
+
+      final firstSuccess = await modelState.loadLocalModelFile(
+        '/models/llama.gguf',
+      );
+      expect(firstSuccess, isTrue);
+      expect(modelState.hasLoadedModel, isTrue);
+      expect(modelState.activeModel!.loadStatus, ModelLoadStatus.loaded);
+
+      // Second load for same path should succeed immediately without reloading
+      final secondSuccess = await modelState.loadLocalModelFile(
+        '/models/llama.gguf',
+      );
+      expect(secondSuccess, isTrue);
+      expect(modelState.activeModel!.loadStatus, ModelLoadStatus.loaded);
+    });
+
+    test(
+      'ModelState rejects model switching while actively generating',
+      () async {
+        final fakeService = FakeInferenceService();
+        final modelState = ModelState(inferenceService: fakeService);
+
+        await modelState.loadLocalModelFile('/models/model_a.gguf');
+        expect(modelState.hasLoadedModel, isTrue);
+
+        // Simulate active generation
+        modelState.setActiveModelGenerating(true);
+        expect(modelState.activeModel!.loadStatus, ModelLoadStatus.generating);
+
+        // Attempt to switch to model_b while generating
+        final switchSuccess = await modelState.loadLocalModelFile(
+          '/models/model_b.gguf',
+        );
+        expect(switchSuccess, isFalse);
+        expect(modelState.errorMessage, contains('active'));
+        expect(modelState.activeModel!.filename, 'model_a.gguf');
+
+        // Clear generating status and verify switch now succeeds
+        modelState.setActiveModelGenerating(false);
+        final switchSuccessAfter = await modelState.loadLocalModelFile(
+          '/models/model_b.gguf',
+        );
+        expect(switchSuccessAfter, isTrue);
+        expect(modelState.activeModel!.filename, 'model_b.gguf');
+      },
+    );
+
+    test('ChatState updates active model loadStatus to generating during streaming', () async {
+      final fakeService = FakeInferenceService();
+      final modelState = ModelState(inferenceService: fakeService);
+      await modelState.loadLocalModelFile('/models/model_a.gguf');
+
+      final chatState = ChatState(modelState: modelState);
+
+      final sendFuture = chatState.sendMessage(
+        'Generate response',
+        inferenceService: fakeService,
+        settings: const GenerationSettings(),
+        modelState: modelState,
+      );
+
+      // During generation, activeModel status must be generating
+      expect(modelState.activeModel!.loadStatus, ModelLoadStatus.generating);
+      expect(chatState.isGenerating, isTrue);
+
+      await sendFuture;
+
+      // After generation finishes, status must revert to loaded
+      expect(modelState.activeModel!.loadStatus, ModelLoadStatus.loaded);
+      expect(chatState.isGenerating, isFalse);
+    });
   });
 }

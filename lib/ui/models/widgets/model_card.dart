@@ -88,7 +88,13 @@ class ModelCard extends StatelessWidget {
         model.downloadStatus == ModelDownloadStatus.downloading;
     final isPaused = model.downloadStatus == ModelDownloadStatus.paused;
     final isError = model.downloadStatus == ModelDownloadStatus.error;
-    final isLoaded = model.loadStatus == ModelLoadStatus.loaded;
+    final isLoaded =
+        model.loadStatus == ModelLoadStatus.loaded ||
+        model.loadStatus == ModelLoadStatus.generating;
+    final isGenerating = model.loadStatus == ModelLoadStatus.generating;
+    final isModelLoading = model.loadStatus == ModelLoadStatus.loading;
+    final isModelUnloading = model.loadStatus == ModelLoadStatus.unloading;
+    final isModelError = model.loadStatus == ModelLoadStatus.error;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -127,12 +133,40 @@ class ModelCard extends StatelessWidget {
                               ),
                             ),
                           ),
-                          if (isLoaded) ...[
+                          if (isGenerating) ...[
+                            const SizedBox(width: 8),
+                            const StatusBadge(
+                              icon: Icons.sync,
+                              label: 'Generating Tokens',
+                              color: Color(0xFF3B82F6),
+                            ),
+                          ] else if (isLoaded) ...[
                             const SizedBox(width: 8),
                             const StatusBadge(
                               icon: Icons.check_circle_rounded,
                               label: 'Loaded in RAM',
                               color: Color(0xFF10A37A),
+                            ),
+                          ] else if (isModelLoading) ...[
+                            const SizedBox(width: 8),
+                            const StatusBadge(
+                              icon: Icons.hourglass_top,
+                              label: 'Loading...',
+                              color: Color(0xFFF59E0B),
+                            ),
+                          ] else if (isModelUnloading) ...[
+                            const SizedBox(width: 8),
+                            const StatusBadge(
+                              icon: Icons.hourglass_bottom,
+                              label: 'Unloading...',
+                              color: Color(0xFFF59E0B),
+                            ),
+                          ] else if (isModelError) ...[
+                            const SizedBox(width: 8),
+                            StatusBadge(
+                              icon: Icons.error_outline,
+                              label: 'Load Error',
+                              color: theme.colorScheme.error,
                             ),
                           ],
                           if (model.isEmbeddingModel) ...[
@@ -433,13 +467,31 @@ class ModelCard extends StatelessWidget {
                     if (isLoaded)
                       FilledButton.tonalIcon(
                         style: FilledButton.styleFrom(
-                          backgroundColor: theme.colorScheme.errorContainer,
-                          foregroundColor: theme.colorScheme.onErrorContainer,
+                          backgroundColor: isGenerating
+                              ? theme.colorScheme.surfaceContainerHighest
+                              : theme.colorScheme.errorContainer,
+                          foregroundColor: isGenerating
+                              ? theme.colorScheme.onSurfaceVariant
+                              : theme.colorScheme.onErrorContainer,
                           visualDensity: VisualDensity.compact,
                         ),
-                        onPressed: isLoading ? null : onUnload,
-                        icon: const Icon(Icons.stop_circle_outlined, size: 15),
-                        label: const Text('Unload from Memory'),
+                        onPressed:
+                            (isLoading || isGenerating || isModelUnloading)
+                            ? null
+                            : onUnload,
+                        icon: Icon(
+                          isGenerating
+                              ? Icons.sync
+                              : Icons.stop_circle_outlined,
+                          size: 15,
+                        ),
+                        label: Text(
+                          isGenerating
+                              ? 'Busy Generating'
+                              : (isModelUnloading
+                                    ? 'Unloading...'
+                                    : 'Unload from Memory'),
+                        ),
                       ),
                   ],
                 ],

@@ -9,6 +9,7 @@ import '../models/chat_session.dart';
 import '../models/generation_settings.dart';
 import '../models/rag/document_attachment.dart';
 import '../models/rag/rag_citation.dart';
+import '../services/inference_coordinator.dart';
 import '../services/inference_service.dart';
 import '../services/rag/embedding_service.dart';
 import '../services/rag/rag_service.dart';
@@ -40,7 +41,8 @@ class ChatState extends ChangeNotifier {
     IRagService? ragService,
     IEmbeddingService? embeddingService,
     this.modelState,
-  }) : ragService = ragService ?? RagService(embeddingService: embeddingService);
+  }) : ragService =
+           ragService ?? RagService(embeddingService: embeddingService);
 
   List<ChatSession> get sessions => List.unmodifiable(_sessions);
   bool get isGenerating => _isGenerating;
@@ -174,7 +176,9 @@ class ChatState extends ChangeNotifier {
     storageService?.clearAllChatData();
   }
 
-  Future<void> _ensureEmbeddingModelLoaded([ModelState? externalModelState]) async {
+  Future<void> _ensureEmbeddingModelLoaded([
+    ModelState? externalModelState,
+  ]) async {
     final ms = externalModelState ?? modelState;
     if (ms == null) return;
     final embedding = ragService.embeddingService;
@@ -182,10 +186,7 @@ class ChatState extends ChangeNotifier {
     final installed = ms.installedEmbeddingModel;
     if (installed != null && installed.localPath != null) {
       try {
-        await embedding.loadModel(
-          installed.localPath!,
-          modelId: installed.id,
-        );
+        await embedding.loadModel(installed.localPath!, modelId: installed.id);
       } catch (_) {
         // Continue with lexical fallback
       }
@@ -291,22 +292,35 @@ class ChatState extends ChangeNotifier {
 
   Future<void> sendMessage(
     String content, {
-    required IInferenceService inferenceService,
+    IInferenceService? inferenceService,
+    IInferenceCoordinator? coordinator,
     required GenerationSettings settings,
     ModelState? modelState,
   }) async {
+    final effectiveCoordinator = coordinator ?? modelState?.coordinator;
+    final effectiveInferenceService =
+        inferenceService ??
+        effectiveCoordinator?.inferenceService ??
+        modelState?.inferenceService;
+
+    final isGeneratingNow =
+        effectiveCoordinator?.isGenerating ??
+        (effectiveInferenceService?.isGenerating ?? false);
+
     final cleanContent = content.trim();
-    if (cleanContent.isEmpty ||
-        _isGenerating ||
-        inferenceService.isGenerating) {
+    if (cleanContent.isEmpty || _isGenerating || isGeneratingNow) {
       return;
     }
+
+    final activeModelName =
+        effectiveCoordinator?.currentModelName ??
+        effectiveInferenceService?.currentModelName;
 
     if (activeSession == null) {
       createNewChat(
         initialTitle: _deriveTitle(cleanContent),
-        modelId: inferenceService.currentModelName,
-        activeModelName: inferenceService.currentModelName,
+        modelId: activeModelName,
+        activeModelName: activeModelName,
       );
     }
 
@@ -333,7 +347,11 @@ class ChatState extends ChangeNotifier {
     }
 
     // 2. If model is NOT loaded, add an honest system notice without fake AI response
-    if (!inferenceService.isLoaded) {
+    final isLoaded = effectiveCoordinator != null
+        ? effectiveCoordinator.isLoaded
+        : (effectiveInferenceService?.isLoaded ?? false);
+
+    if (!isLoaded) {
       final systemNotice = ChatMessage(
         id: 'msg_sys_${now.microsecondsSinceEpoch}_${++_idCounter}',
         role: MessageRole.system,
@@ -406,15 +424,16 @@ class ChatState extends ChangeNotifier {
       currentSession.copyWith(
         title: newTitle,
         updatedAt: DateTime.now(),
-        modelId: currentSession.modelId ?? inferenceService.currentModelName,
-        activeModelName:
-            currentSession.activeModelName ?? inferenceService.currentModelName,
+        modelId: currentSession.modelId ?? activeModelName,
+        activeModelName: currentSession.activeModelName ?? activeModelName,
         messages: updatedMessages,
       ),
     );
     _persist();
 
     _isGenerating = true;
+    final ms = modelState ?? this.modelState;
+    ms?.setActiveModelGenerating(true);
     notifyListeners();
 
     try {
@@ -442,10 +461,21 @@ class ChatState extends ChangeNotifier {
             .copyWith(content: inferencePrompt);
       }
 
-      final tokenStream = inferenceService.generate(
-        messages: messagesForInference,
-        settings: settings,
-      );
+      final Stream<String> tokenStream;
+      if (effectiveCoordinator != null) {
+        tokenStream = await effectiveCoordinator.generate(
+          messages: messagesForInference,
+          settings: settings,
+          requestId: 'ui_chat',
+        );
+      } else if (effectiveInferenceService != null) {
+        tokenStream = effectiveInferenceService.generate(
+          messages: messagesForInference,
+          settings: settings,
+        );
+      } else {
+        throw const InferenceModelNotLoadedException();
+      }
 
       _generationSubscription = tokenStream.listen(
         (token) {
@@ -528,6 +558,7 @@ class ChatState extends ChangeNotifier {
       if (!completer.isCompleted) completer.complete();
       _generationCompleter = null;
     } finally {
+      ms?.setActiveModelGenerating(false);
       try {
         await WakelockPlus.disable();
       } catch (_) {}
@@ -539,17 +570,34 @@ class ChatState extends ChangeNotifier {
   }
 
   Future<void> stopGeneration({
-    required IInferenceService inferenceService,
+    IInferenceService? inferenceService,
+    IInferenceCoordinator? coordinator,
+    ModelState? modelState,
   }) async {
-    if (!_isGenerating) return;
+    final effectiveCoordinator = coordinator ?? modelState?.coordinator;
+    final effectiveInferenceService =
+        inferenceService ??
+        effectiveCoordinator?.inferenceService ??
+        modelState?.inferenceService;
+
+    final isGeneratingNow =
+        effectiveCoordinator?.isGenerating ??
+        (effectiveInferenceService?.isGenerating ?? false);
+
+    if (!_isGenerating && !isGeneratingNow) return;
 
     try {
       await WakelockPlus.disable();
     } catch (_) {}
 
-    await inferenceService.stopGeneration();
+    if (effectiveCoordinator != null) {
+      await effectiveCoordinator.cancelRequest('ui_chat');
+    } else if (effectiveInferenceService != null) {
+      await effectiveInferenceService.stopGeneration();
+    }
     await _generationSubscription?.cancel();
     _generationSubscription = null;
+    (modelState ?? this.modelState)?.setActiveModelGenerating(false);
     if (!(_generationCompleter?.isCompleted ?? true)) {
       _generationCompleter?.complete();
     }

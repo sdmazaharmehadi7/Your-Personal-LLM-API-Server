@@ -598,18 +598,32 @@ class _ModelManagerScreenState extends State<ModelManagerScreen> {
                       ),
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: theme.colorScheme.error,
+                          foregroundColor:
+                              activeModel.loadStatus ==
+                                  ModelLoadStatus.generating
+                              ? theme.colorScheme.outline
+                              : theme.colorScheme.error,
                           side: BorderSide(
-                            color: theme.colorScheme.error.withValues(
-                              alpha: 0.5,
-                            ),
+                            color:
+                                (activeModel.loadStatus ==
+                                            ModelLoadStatus.generating
+                                        ? theme.colorScheme.outline
+                                        : theme.colorScheme.error)
+                                    .withValues(alpha: 0.5),
                           ),
                           visualDensity: VisualDensity.compact,
                         ),
-                        onPressed: modelState.isLoading
+                        onPressed:
+                            (modelState.isLoading ||
+                                activeModel.loadStatus ==
+                                    ModelLoadStatus.generating)
                             ? null
                             : () => modelState.unloadActiveModel(),
-                        child: const Text('Unload'),
+                        child: Text(
+                          activeModel.loadStatus == ModelLoadStatus.generating
+                              ? 'Busy Generating'
+                              : 'Unload',
+                        ),
                       ),
                     ],
                   ),

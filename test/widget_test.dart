@@ -33,6 +33,11 @@ void main() {
     // Navigate to Settings
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.text('Appearance & Theme'),
+      500,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('Appearance & Theme'), findsOneWidget);
 
     // Switch theme to Light mode

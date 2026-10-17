@@ -6,10 +6,12 @@ import 'package:llamadart/llamadart.dart';
 
 import '../models/chat_message.dart';
 import '../models/generation_settings.dart';
+import '../models/local_model.dart';
 
 abstract class IInferenceService {
   bool get isLoaded;
   bool get isGenerating;
+  ModelLoadStatus get status;
   String? get currentModelPath;
   String? get currentModelName;
 
@@ -35,14 +37,23 @@ class LocalInferenceService implements IInferenceService {
   LlamaEngine? _engine;
   String? _currentModelPath;
   String? _currentModelName;
+  ModelLoadStatus _status = ModelLoadStatus.unloaded;
   bool _isGenerating = false;
   StreamSubscription<LlamaCompletionChunk>? _activeSubscription;
+  StreamController<String>? _activeController;
 
   @override
-  bool get isLoaded => _engine != null;
+  bool get isLoaded =>
+      _engine != null &&
+      (_status == ModelLoadStatus.loaded ||
+          _status == ModelLoadStatus.generating);
 
   @override
-  bool get isGenerating => _isGenerating;
+  bool get isGenerating =>
+      _isGenerating || _status == ModelLoadStatus.generating;
+
+  @override
+  ModelLoadStatus get status => _status;
 
   @override
   String? get currentModelPath => _currentModelPath;
@@ -57,18 +68,45 @@ class LocalInferenceService implements IInferenceService {
     bool useGpu = true,
   }) async {
     if (kIsWeb) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException(
         'On-device GGUF inference is not supported in the web browser. '
         'Please run on native macOS, Android, Windows, or Linux.',
       );
     }
 
+    if (_status == ModelLoadStatus.loading) {
+      throw const InferenceException(
+        'A model is already in the process of loading into memory.',
+      );
+    }
+
+    if (_status == ModelLoadStatus.unloading) {
+      throw const InferenceException(
+        'A model is currently in the process of being unloaded from memory.',
+      );
+    }
+
     final trimmedPath = filePath.trim();
     if (trimmedPath.isEmpty) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException('No file path provided.');
     }
 
+    // Do not load duplicate instances of the same model unintentionally
+    if (isLoaded &&
+        _currentModelPath == trimmedPath &&
+        _status == ModelLoadStatus.loaded) {
+      return;
+    }
+
+    // If currently generating, safely stop generation before switching/unloading
+    if (isGenerating) {
+      await stopGeneration();
+    }
+
     if (!trimmedPath.toLowerCase().endsWith('.gguf')) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException(
         'Invalid model file format. Sovereign AI only loads .gguf model files.',
       );
@@ -76,6 +114,7 @@ class LocalInferenceService implements IInferenceService {
 
     final file = File(trimmedPath);
     if (!file.existsSync() || !FileSystemEntity.isFileSync(trimmedPath)) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException(
         'Selected model file could not be found or is not a regular file.',
       );
@@ -83,6 +122,7 @@ class LocalInferenceService implements IInferenceService {
 
     final fileSize = file.lengthSync();
     if (fileSize < 1024 * 1024) {
+      _status = ModelLoadStatus.error;
       throw const InferenceException(
         'The selected file is too small to be a valid GGUF model.',
       );
@@ -100,13 +140,16 @@ class LocalInferenceService implements IInferenceService {
           header[2] != 0x55 || // 'U'
           header[3] != 0x46) {
         // 'F'
+        _status = ModelLoadStatus.error;
         throw const InferenceException(
           'Corrupted or invalid GGUF file header. The file does not contain valid GGUF magic bytes (may be an incomplete download or HTML error page).',
         );
       }
     } on InferenceException {
+      _status = ModelLoadStatus.error;
       rethrow;
     } catch (e) {
+      _status = ModelLoadStatus.error;
       throw InferenceException(
         'Unable to read model file: ${e.toString().split('\n').first}',
       );
@@ -118,6 +161,8 @@ class LocalInferenceService implements IInferenceService {
 
     // Release any previously loaded model to enforce strict single-model memory safety
     await unloadModel();
+
+    _status = ModelLoadStatus.loading;
 
     try {
       final modelSource = ModelSource.parse(trimmedPath);
@@ -132,13 +177,18 @@ class LocalInferenceService implements IInferenceService {
 
       _currentModelPath = trimmedPath;
       _currentModelName = _extractFileName(trimmedPath);
+      _status = ModelLoadStatus.loaded;
     } on LlamaStateException catch (e) {
+      _status = ModelLoadStatus.error;
       await unloadModel();
+      _status = ModelLoadStatus.error;
       throw InferenceException(
         'Model engine encountered an initialization state error: ${e.message}',
       );
     } catch (e) {
+      _status = ModelLoadStatus.error;
       await unloadModel();
+      _status = ModelLoadStatus.error;
       final errStr = e.toString().toLowerCase();
       if (errStr.contains('memory') ||
           errStr.contains('alloc') ||
@@ -163,7 +213,14 @@ class LocalInferenceService implements IInferenceService {
 
   @override
   Future<void> unloadModel() async {
-    await stopGeneration();
+    if (_status == ModelLoadStatus.unloading) return;
+
+    if (_isGenerating || _status == ModelLoadStatus.generating) {
+      await stopGeneration();
+    }
+
+    _status = ModelLoadStatus.unloading;
+
     if (_engine != null) {
       try {
         await _engine!.dispose();
@@ -175,6 +232,7 @@ class LocalInferenceService implements IInferenceService {
         _currentModelName = null;
       }
     }
+    _status = ModelLoadStatus.unloaded;
   }
 
   @override
@@ -182,20 +240,46 @@ class LocalInferenceService implements IInferenceService {
     required List<ChatMessage> messages,
     required GenerationSettings settings,
   }) {
-    if (_engine == null) {
+    if (_status == ModelLoadStatus.unloaded || _engine == null) {
       throw const InferenceException(
         'Inference engine offline: No model is currently loaded in memory.',
       );
     }
 
-    if (_isGenerating) {
+    if (_status == ModelLoadStatus.loading) {
+      throw const InferenceException(
+        'Model is currently loading into memory. Please wait for loading to complete.',
+      );
+    }
+
+    if (_status == ModelLoadStatus.unloading) {
+      throw const InferenceException(
+        'Model is currently being unloaded from memory.',
+      );
+    }
+
+    if (_isGenerating || _status == ModelLoadStatus.generating) {
       throw const InferenceException(
         'A generation task is already in progress. Please stop or wait for it to complete.',
       );
     }
 
+    if (_status == ModelLoadStatus.error) {
+      throw const InferenceException(
+        'Inference engine is in an error state. Please reload the model.',
+      );
+    }
+
     _isGenerating = true;
-    final controller = StreamController<String>();
+    _status = ModelLoadStatus.generating;
+
+    late final StreamController<String> controller;
+    controller = StreamController<String>(
+      onCancel: () async {
+        await stopGeneration();
+      },
+    );
+    _activeController = controller;
 
     final llamaMessages = <LlamaChatMessage>[];
 
@@ -257,6 +341,11 @@ class LocalInferenceService implements IInferenceService {
         },
         onError: (Object error) {
           _isGenerating = false;
+          if (_status == ModelLoadStatus.generating) {
+            _status = _engine != null
+                ? ModelLoadStatus.loaded
+                : ModelLoadStatus.unloaded;
+          }
           _activeSubscription = null;
           final errorMsg = error.toString().toLowerCase();
           if (errorMsg.contains('cancel')) {
@@ -271,6 +360,11 @@ class LocalInferenceService implements IInferenceService {
         },
         onDone: () {
           _isGenerating = false;
+          if (_status == ModelLoadStatus.generating) {
+            _status = _engine != null
+                ? ModelLoadStatus.loaded
+                : ModelLoadStatus.unloaded;
+          }
           _activeSubscription = null;
           controller.close();
         },
@@ -278,6 +372,11 @@ class LocalInferenceService implements IInferenceService {
       );
     } catch (e) {
       _isGenerating = false;
+      if (_status == ModelLoadStatus.generating) {
+        _status = _engine != null
+            ? ModelLoadStatus.loaded
+            : ModelLoadStatus.unloaded;
+      }
       _activeSubscription = null;
       controller.addError(
         InferenceException(
@@ -296,11 +395,20 @@ class LocalInferenceService implements IInferenceService {
       if (_activeSubscription != null) {
         await _activeSubscription!.cancel();
       }
+      if (_activeController != null && !_activeController!.isClosed) {
+        await _activeController!.close();
+      }
     } catch (_) {
       // Safe cancellation
     } finally {
       _activeSubscription = null;
+      _activeController = null;
       _isGenerating = false;
+      if (_status == ModelLoadStatus.generating) {
+        _status = _engine != null
+            ? ModelLoadStatus.loaded
+            : ModelLoadStatus.unloaded;
+      }
     }
   }
 

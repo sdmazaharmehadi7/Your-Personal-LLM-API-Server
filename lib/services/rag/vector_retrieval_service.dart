@@ -9,7 +9,8 @@ class RetrievalResult {
   final List<DocumentChunk> chunks;
   final List<RagCitation> citations;
   final bool hasSufficientEvidence;
-  final String retrievalMethod; // 'hybrid_rrf', 'semantic_cosine', 'lexical_bm25'
+  final String
+  retrievalMethod; // 'hybrid_rrf', 'semantic_cosine', 'lexical_bm25'
 
   const RetrievalResult({
     required this.chunks,
@@ -54,14 +55,17 @@ class VectorRetrievalService {
       );
     }
 
-    final hasValidEmbedding = queryEmbedding != null && queryEmbedding.isNotEmpty;
+    final hasValidEmbedding =
+        queryEmbedding != null && queryEmbedding.isNotEmpty;
     final hasChunkEmbeddings = allCandidateChunks.any(
       (c) => c.embedding != null && c.embedding!.isNotEmpty,
     );
 
     // If semantic requested but embeddings unavailable, gracefully fallback to lexical BM25
     final effectiveMode = (!hasValidEmbedding || !hasChunkEmbeddings)
-        ? (mode == RetrievalMode.semanticOnly ? RetrievalMode.semanticOnly : RetrievalMode.lexicalOnly)
+        ? (mode == RetrievalMode.semanticOnly
+              ? RetrievalMode.semanticOnly
+              : RetrievalMode.lexicalOnly)
         : mode;
 
     switch (effectiveMode) {
@@ -242,7 +246,10 @@ class VectorRetrievalService {
 
     // 3. Reciprocal Rank Fusion (RRF)
     final chunkMap = {for (var c in allCandidateChunks) c.id: c};
-    final allRankedIds = <String>{...lexicalRankMap.keys, ...semanticRankMap.keys};
+    final allRankedIds = <String>{
+      ...lexicalRankMap.keys,
+      ...semanticRankMap.keys,
+    };
 
     if (allRankedIds.isEmpty) {
       return const RetrievalResult(
@@ -253,7 +260,15 @@ class VectorRetrievalService {
       );
     }
 
-    final fusedList = <({DocumentChunk chunk, double rrfScore, double rawSimilarity, double rawBm25})>[];
+    final fusedList =
+        <
+          ({
+            DocumentChunk chunk,
+            double rrfScore,
+            double rawSimilarity,
+            double rawBm25,
+          })
+        >[];
 
     for (final id in allRankedIds) {
       final chunk = chunkMap[id]!;
@@ -325,7 +340,10 @@ class VectorRetrievalService {
     String query,
     List<DocumentChunk> allCandidateChunks,
   ) {
-    final queryWords = query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final queryWords = query
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .toList();
     final queryTerms = ChunkingService.computeTermFrequencies(queryWords);
     if (queryTerms.isEmpty) return const [];
 
@@ -340,7 +358,9 @@ class VectorRetrievalService {
       }
     }
 
-    final avgDocLength = totalDocuments > 0 ? (totalDocLength / totalDocuments) : 1.0;
+    final avgDocLength = totalDocuments > 0
+        ? (totalDocLength / totalDocuments)
+        : 1.0;
     final scoredChunks = <({DocumentChunk chunk, double score})>[];
 
     for (final chunk in allCandidateChunks) {
@@ -355,11 +375,14 @@ class VectorRetrievalService {
         if (chunkTermFreq == 0) continue;
 
         final docFreq = docFrequencies[term] ?? 0;
-        final idf = math.log(1.0 + (totalDocuments - docFreq + 0.5) / (docFreq + 0.5));
+        final idf = math.log(
+          1.0 + (totalDocuments - docFreq + 0.5) / (docFreq + 0.5),
+        );
         final safeIdf = math.max(0.01, idf);
 
         final numerator = chunkTermFreq * (k1 + 1.0);
-        final denominator = chunkTermFreq + k1 * (1.0 - b + b * (docLength / avgDocLength));
+        final denominator =
+            chunkTermFreq + k1 * (1.0 - b + b * (docLength / avgDocLength));
         final tfScore = numerator / denominator;
 
         score += safeIdf * tfScore * (1 + math.log(queryTermFreq));

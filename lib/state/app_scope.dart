@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_server/api_key_service.dart';
+import '../services/api_server/local_api_server.dart';
+import '../services/inference_coordinator.dart';
+import '../services/remote_access/remote_access_manager.dart';
 import '../services/storage_service.dart';
 import 'chat_state.dart';
 import 'model_state.dart';
@@ -10,6 +14,9 @@ class AppScope extends InheritedWidget {
   final ModelState modelState;
   final ChatState chatState;
   final IStorageService storageService;
+  final LocalApiServer? apiServer;
+  final ApiKeyService? apiKeyService;
+  final RemoteAccessManager? remoteAccessManager;
 
   const AppScope({
     super.key,
@@ -17,6 +24,9 @@ class AppScope extends InheritedWidget {
     required this.modelState,
     required this.chatState,
     required this.storageService,
+    this.apiServer,
+    this.apiKeyService,
+    this.remoteAccessManager,
     required super.child,
   });
 
@@ -31,6 +41,18 @@ class AppScope extends InheritedWidget {
       of(context).settingsState;
 
   static ModelState modelOf(BuildContext context) => of(context).modelState;
+
+  static IInferenceCoordinator coordinatorOf(BuildContext context) =>
+      of(context).modelState.coordinator;
+
+  static LocalApiServer? apiServerOf(BuildContext context) =>
+      of(context).apiServer;
+
+  static ApiKeyService? apiKeyServiceOf(BuildContext context) =>
+      of(context).apiKeyService;
+
+  static RemoteAccessManager? remoteAccessOf(BuildContext context) =>
+      of(context).remoteAccessManager;
 
   static ChatState chatOf(BuildContext context) => of(context).chatState;
 

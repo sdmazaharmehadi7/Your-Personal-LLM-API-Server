@@ -6,6 +6,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 
 import 'package:sovereign_ai/models/chat_message.dart';
 import 'package:sovereign_ai/models/generation_settings.dart';
+import 'package:sovereign_ai/models/local_model.dart';
 import 'package:sovereign_ai/models/rag/document_attachment.dart';
 import 'package:sovereign_ai/models/rag/document_chunk.dart';
 import 'package:sovereign_ai/services/inference_service.dart';
@@ -26,6 +27,10 @@ class MockInferenceService implements IInferenceService {
   bool get isLoaded => _isLoaded;
   @override
   bool get isGenerating => _isGenerating;
+  @override
+  ModelLoadStatus get status => _isLoaded
+      ? (_isGenerating ? ModelLoadStatus.generating : ModelLoadStatus.loaded)
+      : ModelLoadStatus.unloaded;
   @override
   String? get currentModelName => 'Test-Model-GGUF';
   @override

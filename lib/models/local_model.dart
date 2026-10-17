@@ -6,7 +6,17 @@ enum ModelDownloadStatus {
   error,
 }
 
-enum ModelLoadStatus { unloaded, loading, loaded, error }
+enum ModelLoadStatus { unloaded, loading, loaded, generating, unloading, error }
+
+extension ModelLoadStatusX on ModelLoadStatus {
+  bool get isLoaded =>
+      this == ModelLoadStatus.loaded || this == ModelLoadStatus.generating;
+  bool get isGenerating => this == ModelLoadStatus.generating;
+  bool get isLoading => this == ModelLoadStatus.loading;
+  bool get isUnloading => this == ModelLoadStatus.unloading;
+  bool get isError => this == ModelLoadStatus.error;
+  bool get isUnloaded => this == ModelLoadStatus.unloaded;
+}
 
 enum ModelSourceType { catalog, imported, customUrl }
 

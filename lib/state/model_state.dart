@@ -7,19 +7,21 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../models/local_model.dart';
+import '../services/inference_coordinator.dart';
 import '../services/inference_service.dart';
 import '../services/model_download_service.dart';
 import '../services/rag/embedding_service.dart';
 import '../services/storage_service.dart';
 
 class ModelState extends ChangeNotifier {
-  final IInferenceService _inferenceService;
+  final IInferenceCoordinator _coordinator;
   final IModelDownloadService _downloadService;
   final IStorageService? _storageService;
   final String? _customModelsDirectory;
   final IEmbeddingService? embeddingService;
   String? _resolvedModelsDirectory;
   StreamSubscription<ModelDownloadProgress>? _downloadSubscription;
+  StreamSubscription<ModelLoadStatus>? _coordinatorStatusSubscription;
 
   final List<LocalModel> _catalogModels = [
     const LocalModel(
@@ -33,11 +35,9 @@ class ModelState extends ChangeNotifier {
       minRamGb: 0.2,
       publisher: 'Sentence Transformers',
       license: 'Apache 2.0',
-      description:
-          'Compact 384-dimensional neural embedding model for semantic search and local RAG. Runs offline via llamadart on Metal and ARM64.',
+      description: 'Compact 384-dimensional neural embedding model for semantic search and local RAG. Runs offline via llamadart on Metal and ARM64.',
       filename: 'all-MiniLM-L6-v2-Q4_K_M.gguf',
-      downloadUrl:
-          'https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-Q4_K_M.gguf',
+      downloadUrl: 'https://huggingface.co/second-state/All-MiniLM-L6-v2-Embedding-GGUF/resolve/main/all-MiniLM-L6-v2-Q4_K_M.gguf',
       downloadStatus: ModelDownloadStatus.notDownloaded,
       loadStatus: ModelLoadStatus.unloaded,
       sourceType: ModelSourceType.catalog,
@@ -164,25 +164,45 @@ class ModelState extends ChangeNotifier {
   String _searchQuery = '';
 
   ModelState({
+    IInferenceCoordinator? coordinator,
     IInferenceService? inferenceService,
     IModelDownloadService? downloadService,
     this._storageService,
     String? modelsDirectory,
     this.embeddingService,
-  }) : _inferenceService = inferenceService ?? LocalInferenceService(),
+  }) : _coordinator =
+           coordinator ??
+           InferenceCoordinator(
+             inferenceService: inferenceService ?? LocalInferenceService(),
+           ),
        _downloadService = downloadService ?? ModelDownloadService(),
        _customModelsDirectory = modelsDirectory {
     _models.addAll(_catalogModels);
     _downloadSubscription = _downloadService.progressStream.listen(
       _onDownloadProgress,
     );
+    _coordinatorStatusSubscription = _coordinator.statusStream.listen(
+      _onCoordinatorStatusChanged,
+    );
   }
 
-  IInferenceService get inferenceService => _inferenceService;
+  void _onCoordinatorStatusChanged(ModelLoadStatus newStatus) {
+    if (_activeModel != null && _activeModel!.loadStatus != newStatus) {
+      _activeModel = _activeModel!.copyWith(loadStatus: newStatus);
+      final idx = _models.indexWhere((m) => m.id == _activeModel!.id);
+      if (idx != -1) {
+        _models[idx] = _activeModel!;
+      }
+      notifyListeners();
+    }
+  }
+
+  IInferenceCoordinator get coordinator => _coordinator;
+  IInferenceService get inferenceService => _coordinator.inferenceService;
   IModelDownloadService get downloadService => _downloadService;
   List<LocalModel> get models => List.unmodifiable(_models);
   LocalModel? get activeModel => _activeModel;
-  bool get hasLoadedModel => _inferenceService.isLoaded;
+  bool get hasLoadedModel => _coordinator.isLoaded;
   bool get isLoading => _isLoading;
   String? get loadingMessage => _loadingMessage;
   String? get errorMessage => _errorMessage;
@@ -594,6 +614,24 @@ class ModelState extends ChangeNotifier {
     }
   }
 
+  ModelLoadStatus get status => _coordinator.status;
+
+  void setActiveModelGenerating(bool isGenerating) {
+    if (_activeModel != null) {
+      final newStatus = isGenerating
+          ? ModelLoadStatus.generating
+          : ModelLoadStatus.loaded;
+      if (_activeModel!.loadStatus != newStatus) {
+        _activeModel = _activeModel!.copyWith(loadStatus: newStatus);
+        final idx = _models.indexWhere((m) => m.id == _activeModel!.id);
+        if (idx != -1) {
+          _models[idx] = _activeModel!;
+        }
+        notifyListeners();
+      }
+    }
+  }
+
   Future<bool> loadLocalModelFile(
     String filePath, {
     int contextWindow = 2048,
@@ -601,29 +639,62 @@ class ModelState extends ChangeNotifier {
   }) async {
     if (_isLoading) return false;
 
+    // Reject model switching while generation is actively running or queued
+    if (_coordinator.isGenerating ||
+        _coordinator.queueLength > 0 ||
+        _activeModel?.loadStatus == ModelLoadStatus.generating) {
+      _errorMessage = 'Cannot switch or reload models while a generation task is active or queued. Please stop generation first.';
+      notifyListeners();
+      return false;
+    }
+
+    final trimmedPath = filePath.trim();
+
+    // Avoid reloading duplicate instance if already loaded
+    if (hasLoadedModel &&
+        _activeModel?.localPath == trimmedPath &&
+        _activeModel?.loadStatus == ModelLoadStatus.loaded) {
+      return true;
+    }
+
     _isLoading = true;
     _loadingMessage =
-        'Loading model weights and initializing native inference context...';
+        'Validating model file and initializing native inference context...';
     _errorMessage = null;
+
+    // Mark target model as loading
+    final targetIndex = _models.indexWhere(
+      (m) =>
+          m.localPath == trimmedPath ||
+          p.basename(m.filename).toLowerCase() ==
+              p.basename(trimmedPath).toLowerCase(),
+    );
+    if (targetIndex != -1) {
+      _models[targetIndex] = _models[targetIndex].copyWith(
+        loadStatus: ModelLoadStatus.loading,
+      );
+    }
     notifyListeners();
 
     try {
-      await _inferenceService.loadModel(
-        filePath,
+      final targetMetadata = targetIndex != -1 ? _models[targetIndex] : null;
+      await _coordinator.loadModel(
+        trimmedPath,
         contextWindow: contextWindow,
         useGpu: useGpu,
+        modelMetadata: targetMetadata,
       );
 
-      final file = File(filePath);
+      final file = File(trimmedPath);
       final fileName = file.uri.pathSegments.isNotEmpty
           ? file.uri.pathSegments.last
-          : filePath;
+          : trimmedPath;
       final fileSizeBytes = file.existsSync() ? file.lengthSync() : 0;
       final diskSizeGb = (fileSizeBytes / (1024 * 1024 * 1024));
 
       // Reset any previous model's loaded status
       for (int i = 0; i < _models.length; i++) {
-        if (_models[i].loadStatus == ModelLoadStatus.loaded) {
+        if (_models[i].loadStatus != ModelLoadStatus.unloaded) {
           _models[i] = _models[i].copyWith(
             loadStatus: ModelLoadStatus.unloaded,
           );
@@ -640,7 +711,7 @@ class ModelState extends ChangeNotifier {
         _activeModel = _models[existingIndex].copyWith(
           downloadStatus: ModelDownloadStatus.downloaded,
           loadStatus: ModelLoadStatus.loaded,
-          localPath: filePath,
+          localPath: trimmedPath,
           lastUsedAt: now,
         );
         _models[existingIndex] = _activeModel!;
@@ -658,7 +729,7 @@ class ModelState extends ChangeNotifier {
           filename: fileName,
           downloadStatus: ModelDownloadStatus.downloaded,
           loadStatus: ModelLoadStatus.loaded,
-          localPath: filePath,
+          localPath: trimmedPath,
           sourceType: ModelSourceType.imported,
           lastUsedAt: now,
         );
@@ -672,14 +743,16 @@ class ModelState extends ChangeNotifier {
       return true;
     } on InferenceException catch (e) {
       try {
-        await _inferenceService.unloadModel();
+        await _coordinator.unloadModel(force: true);
       } catch (_) {}
       _errorMessage = e.message;
       _activeModel = null;
       for (int i = 0; i < _models.length; i++) {
-        if (_models[i].loadStatus == ModelLoadStatus.loaded) {
+        if (_models[i].loadStatus != ModelLoadStatus.unloaded) {
           _models[i] = _models[i].copyWith(
-            loadStatus: ModelLoadStatus.unloaded,
+            loadStatus: targetIndex == i
+                ? ModelLoadStatus.error
+                : ModelLoadStatus.unloaded,
           );
         }
       }
@@ -689,15 +762,17 @@ class ModelState extends ChangeNotifier {
       return false;
     } catch (e) {
       try {
-        await _inferenceService.unloadModel();
+        await _coordinator.unloadModel(force: true);
       } catch (_) {}
       _errorMessage =
           'An unexpected error occurred while loading the model: ${e.toString().split('\n').first}';
       _activeModel = null;
       for (int i = 0; i < _models.length; i++) {
-        if (_models[i].loadStatus == ModelLoadStatus.loaded) {
+        if (_models[i].loadStatus != ModelLoadStatus.unloaded) {
           _models[i] = _models[i].copyWith(
-            loadStatus: ModelLoadStatus.unloaded,
+            loadStatus: targetIndex == i
+                ? ModelLoadStatus.error
+                : ModelLoadStatus.unloaded,
           );
         }
       }
@@ -711,14 +786,28 @@ class ModelState extends ChangeNotifier {
   Future<void> unloadActiveModel() async {
     if (_isLoading) return;
 
+    // If currently generating, safely cancel UI generation first
+    if (_coordinator.isGenerating) {
+      await _coordinator.cancelRequest('ui_chat');
+    }
+
     _isLoading = true;
     _loadingMessage = 'Unloading model and releasing native memory buffers...';
+    if (_activeModel != null) {
+      _activeModel = _activeModel!.copyWith(
+        loadStatus: ModelLoadStatus.unloading,
+      );
+      final idx = _models.indexWhere((m) => m.id == _activeModel!.id);
+      if (idx != -1) {
+        _models[idx] = _activeModel!;
+      }
+    }
     notifyListeners();
 
     try {
-      await _inferenceService.unloadModel();
+      await _coordinator.unloadModel(force: true);
       for (int i = 0; i < _models.length; i++) {
-        if (_models[i].loadStatus == ModelLoadStatus.loaded) {
+        if (_models[i].loadStatus != ModelLoadStatus.unloaded) {
           _models[i] = _models[i].copyWith(
             loadStatus: ModelLoadStatus.unloaded,
           );
@@ -735,8 +824,9 @@ class ModelState extends ChangeNotifier {
   @override
   void dispose() {
     _downloadSubscription?.cancel();
+    _coordinatorStatusSubscription?.cancel();
     _downloadService.dispose();
-    _inferenceService.dispose();
+    _coordinator.dispose();
     super.dispose();
   }
 }

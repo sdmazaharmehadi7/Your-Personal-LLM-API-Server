@@ -1,8 +1,4 @@
-enum RetrievalMode {
-  hybrid,
-  semanticOnly,
-  lexicalOnly,
-}
+enum RetrievalMode { hybrid, semanticOnly, lexicalOnly }
 
 class GenerationSettings {
   final double temperature;
@@ -19,8 +15,7 @@ class GenerationSettings {
     this.topP = 0.9,
     this.contextWindow = 4096,
     this.maxTokens = 1024,
-    this.systemPrompt =
-        'You are Sovereign AI, an intelligent, private, and completely offline assistant running locally on this machine.',
+    this.systemPrompt = 'You are Sovereign AI, an intelligent, private, and completely offline assistant running locally on this machine.',
     this.useGpuAcceleration = true,
     this.retrievalMode = RetrievalMode.hybrid,
     this.ragTopK = 4,
@@ -71,9 +66,7 @@ class GenerationSettings {
       topP: (json['topP'] as num?)?.toDouble() ?? 0.9,
       contextWindow: (json['contextWindow'] as num?)?.toInt() ?? 4096,
       maxTokens: (json['maxTokens'] as num?)?.toInt() ?? 1024,
-      systemPrompt:
-          json['systemPrompt'] as String? ??
-          'You are Sovereign AI, an intelligent, private, and completely offline assistant running locally on this machine.',
+      systemPrompt: json['systemPrompt'] as String? ?? 'You are Sovereign AI, an intelligent, private, and completely offline assistant running locally on this machine.',
       useGpuAcceleration: json['useGpuAcceleration'] as bool? ?? true,
       retrievalMode: mode,
       ragTopK: (json['ragTopK'] as num?)?.toInt() ?? 4,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:llamadart/llamadart.dart';
 
@@ -83,11 +84,15 @@ class LocalEmbeddingService implements IEmbeddingService {
 
     final file = File(trimmedPath);
     if (!await file.exists()) {
-      throw EmbeddingException('Embedding model file not found at "$trimmedPath".');
+      throw EmbeddingException(
+        'Embedding model file not found at "$trimmedPath".',
+      );
     }
 
     if (file.lengthSync() < 1024 * 1024) {
-      throw const EmbeddingException('Selected file is too small to be a valid GGUF embedding model.');
+      throw const EmbeddingException(
+        'Selected file is too small to be a valid GGUF embedding model.',
+      );
     }
 
     await unloadModel();
@@ -183,7 +188,10 @@ class LocalEmbeddingService implements IEmbeddingService {
         final batch = texts.sublist(i, end);
 
         try {
-          final batchVectors = await _engine!.embedBatch(batch, normalize: true);
+          final batchVectors = await _engine!.embedBatch(
+            batch,
+            normalize: true,
+          );
           for (final vec in batchVectors) {
             allEmbeddings.add(normalizeVector(vec));
           }
