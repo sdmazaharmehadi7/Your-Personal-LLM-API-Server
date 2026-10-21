@@ -20,6 +20,9 @@
 
 **Sovereign AI** transforms your Mac into an autonomous, private AI workstation and high-performance **OpenAI-compatible HTTP API server**.
 
+
+Download ---->. https://github.com/sdmazaharmehadi7/Your-Personal-LLM-API-Server/releases/download/localserver/sovereign_ai.app.zip
+
 Running natively on Apple Silicon (Metal) and Intel CPUs via native C++ bindings to `llama.cpp` (`llamadart`), Sovereign AI enables you to chat with local GGUF models, index and chat with documents via Hybrid Neural RAG, and serve `/v1/chat/completions` directly to tools like **Cursor**, **Continue.dev**, **LangChain**, **AutoGen**, and your own scripts—completely offline with zero cloud telemetry.
 
 ### 🚫 Core Guarantees:
